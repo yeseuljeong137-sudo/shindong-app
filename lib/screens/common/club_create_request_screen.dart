@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+import '../../widgets/api_error.dart';
 import 'submission_complete_screen.dart';
 
 class ClubCreateRequestScreen extends StatefulWidget {
@@ -19,6 +21,37 @@ class _ClubCreateRequestScreenState extends State<ClubCreateRequestScreen> {
 
   String _selectedCategory = '학술';
   bool _isFormValid = false;
+  bool _isSubmitting = false;
+
+  // 관리자에게 개설 요청 보내기 (POST /api/club-requests)
+  Future<void> _submit() async {
+    setState(() => _isSubmitting = true);
+    try {
+      await ApiClient.instance.post(
+        '/api/club-requests',
+        body: {
+          'name': _nameController.text.trim(),
+          'category': _selectedCategory,
+          'etcCategory': _etcCategoryController.text.trim(),
+          'purpose': _purposeController.text.trim(),
+          'advisor': _advisorController.text.trim(),
+          'leaderInfo': _leaderController.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              SubmissionCompleteScreen(clubName: _nameController.text.trim()),
+        ),
+      );
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
 
   @override
   void initState() {
@@ -334,18 +367,7 @@ class _ClubCreateRequestScreenState extends State<ClubCreateRequestScreen> {
               width: double.infinity,
               height: 52.0,
               child: ElevatedButton(
-                onPressed: _isFormValid
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => SubmissionCompleteScreen(
-                              clubName: _nameController.text.trim(),
-                            ),
-                          ),
-                        );
-                      }
-                    : null,
+                onPressed: _isFormValid && !_isSubmitting ? _submit : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF8CC63F),
                   disabledBackgroundColor: const Color(0xFFE0E0E0),

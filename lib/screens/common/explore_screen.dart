@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/club_models.dart';
 import '../../services/club_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_detail_screen.dart';
 
 class ExploreScreen extends StatefulWidget {
@@ -34,12 +35,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _loadClubs() async {
-    final ClubList clubs = await ClubRepository.instance.fetchClubs();
-    if (!mounted) return;
-    setState(() {
-      _allClubs = clubs;
-      _isLoading = false;
-    });
+    try {
+      final ClubList clubs = await ClubRepository.instance.fetchClubs();
+      if (!mounted) return;
+      setState(() {
+        _allClubs = clubs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showApiError(context, e);
+    }
   }
 
   List<ClubModel> get _filteredClubs {

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+
 class FaqScreen extends StatelessWidget {
   const FaqScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final List faqList = [
+    // 서버 연결 전/실패 시 보여줄 기본 FAQ (서버 값: GET /api/faqs)
+    final List fallbackFaqs = [
       {
         'question': '동아리는 어디에서 찾아볼 수 있나요?',
         'answer': '탐색에서 관심 있는 동아리를 찾아보세요.\n동아리를 선택하면 상세 정보를 볼 수 있어요.',
@@ -54,7 +57,16 @@ class FaqScreen extends StatelessWidget {
         centerTitle: false,
         titleSpacing: 0,
       ),
-      body: ListView.separated(
+      body: FutureBuilder<List>(
+        future: ApiClient.instance
+            .get('/api/faqs')
+            .then<List>((data) => asJsonList(data)),
+        builder: (context, snapshot) {
+          final List faqList =
+              (snapshot.hasData && snapshot.data!.isNotEmpty)
+              ? snapshot.data!
+              : fallbackFaqs;
+          return ListView.separated(
         padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 32.0),
         itemCount: faqList.length,
         separatorBuilder: (context, index) => const SizedBox(height: 14.0),
@@ -106,6 +118,8 @@ class FaqScreen extends StatelessWidget {
               ],
             ),
           );
+        },
+      );
         },
       ),
     );

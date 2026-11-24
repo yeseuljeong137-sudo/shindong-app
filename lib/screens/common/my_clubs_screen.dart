@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../config/app_role.dart';
 import '../../models/club_models.dart';
+import '../../services/club_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_board_screen.dart';
 import 'club_detail_screen.dart';
 
@@ -17,32 +18,10 @@ class MyClubsScreen extends StatefulWidget {
   static final ClubsNotifier clubsNotifier = ClubsNotifier();
 
   // 홈, 마이 페이지, 게시판 화면과 공유되는 가입 동아리 목록
-  static final List<ClubItemMap> joinedClubs = [
-    {
-      'clubId': 1,
-      'isRecruiting': true,
-      'clubName': 'HelloWorld',
-      'tag': '학술',
-      'meetingTime': '매주 수요일 18:00',
-      'location': '학관 302호',
-      'logo': 'assets/images/logo-helloworld.png',
-      'description':
-          '프로그래밍 기초부터 실제 웹·모바일 서비스를 출시하는 신구대학교 개발 동아리입니다. 함께 배우고, 만들고, 성장해요.',
-      'memberCount': 57,
-    },
-    {
-      'clubId': 9,
-      'isRecruiting': true,
-      'clubName': '오프레임 (Off-frame)',
-      'tag': '문화/예술',
-      'meetingTime': '격주 금요일 17:30',
-      'location': '디자인관 204호',
-      'logo': 'assets/images/logo-offframe.png',
-      'description':
-          '일상의 순간을 사진과 영상으로 기록하고 전시회와 단편 영화 제작을 함께 진행하는 사진·영상 동아리입니다.',
-      'memberCount': 34,
-    },
-  ];
+  // 서버에서 받아온 가입 동아리 목록 (ClubRepository.refreshJoinedClubs()가 채움)
+  // 키: clubId, isRecruiting, clubName, tag, meetingTime, location, logo, description,
+  //     memberCount, role, isPresident
+  static final List<ClubItemMap> joinedClubs = [];
 
   const MyClubsScreen({super.key, this.isPresident});
 
@@ -53,15 +32,13 @@ class MyClubsScreen extends StatefulWidget {
 class _MyClubsScreenState extends State<MyClubsScreen> {
   List<ClubItemMap> get _myClubs => MyClubsScreen.joinedClubs;
 
-  bool get _effectiveIsPresident {
-    return widget.isPresident ?? AppRole.isPresident;
-  }
 
   void _showWithdrawConfirmAlert(
     BuildContext reasonDialogContext,
     int index,
-    String clubName,
-  ) {
+    String clubName, {
+    String reason = '사유 없음',
+  }) {
     showDialog(
       context: reasonDialogContext,
       barrierDismissible: false,
@@ -96,13 +73,21 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
               ),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(alertContext);
                 Navigator.pop(reasonDialogContext);
-                setState(() {
-                  _myClubs.removeAt(index);
-                });
-                MyClubsScreen.clubsNotifier.notify();
+                final clubId = _myClubs[index]['clubId'] as int;
+                try {
+                  // 서버에서 탈퇴 처리 후 목록 다시 받아옴 (clubsNotifier도 자동 알림)
+                  await ClubRepository.instance.withdrawClub(clubId, reason);
+                  if (!mounted) return;
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('$clubName에서 탈퇴했어요.')),
+                  );
+                } catch (e) {
+                  if (mounted) showApiError(context, e);
+                }
               },
               child: const Text(
                 '탈퇴하기',
@@ -338,6 +323,9 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                                   dialogContext,
                                   index,
                                   clubName,
+                                  reason: isOtherSelected
+                                      ? reasonController.text.trim()
+                                      : reasons[selectedReasonIndex],
                                 );
                               },
                               style: ElevatedButton.styleFrom(
@@ -371,8 +359,27 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    MyClubsScreen.clubsNotifier.addListener(_onClubsChanged);
+    // 화면 들어올 때 최신 목록으로 갱신
+    ClubRepository.instance.refreshJoinedClubs().catchError((Object e) {
+      if (mounted) showApiError(context, e);
+    });
+  }
+
+  @override
+  void dispose() {
+    MyClubsScreen.clubsNotifier.removeListener(_onClubsChanged);
+    super.dispose();
+  }
+
+  void _onClubsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final bool isPresident = _effectiveIsPresident;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
@@ -426,6 +433,9 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                 final String logo = club['logo'].toString();
                 final String description = club['description'].toString();
                 final int memberCount = club['memberCount'] as int;
+                // 동아리마다 회장 여부가 다름 (서버의 role 값)
+                final bool isPresident =
+                    widget.isPresident ?? (club['isPresident'] == true);
 
                 return Container(
                   padding: const EdgeInsets.all(18.0),
@@ -660,6 +670,7 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) => ClubBoardScreen(
+                                        clubId: clubId,
                                         clubName: clubName,
                                         clubLogo: logo,
                                         memberCount: memberCount,

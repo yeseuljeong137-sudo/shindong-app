@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../services/application_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_apply_complete_screen.dart';
 
 class ClubApplyScreen extends StatefulWidget {
+  final int clubId;
   final String clubName;
   final String clubLogo;
 
   const ClubApplyScreen({
     super.key,
+    required this.clubId,
     required this.clubName,
     required this.clubLogo,
   });
@@ -35,6 +39,38 @@ class _ClubApplyScreenState extends State {
   final Set _selectedInterests = {}; // 체크된 항목들을 담는 Set
 
   bool _isFormValid = false;
+  bool _isSubmitting = false;
+
+  Future<void> _submit() async {
+    final screenWidget = widget as ClubApplyScreen;
+    setState(() => _isSubmitting = true);
+    try {
+      await ApplicationRepository.instance.submit(
+        screenWidget.clubId,
+        motive: _motiveController.text.trim(),
+        // 화면에 보이는 순서대로 보냄
+        interests: _interestOptions
+            .where((o) => _selectedInterests.contains(o))
+            .map((o) => o.toString())
+            .toList(),
+        tools: _toolsController.text.trim(),
+        experience: _experienceController.text.trim(),
+        preparation: _preparationController.text.trim(),
+      );
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              ClubApplyCompleteScreen(clubName: screenWidget.clubName),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      showApiError(context, e);
+    }
+  }
 
   @override
   void initState() {
@@ -215,18 +251,7 @@ class _ClubApplyScreenState extends State {
                 width: double.infinity,
                 height: 52.0,
                 child: ElevatedButton(
-                  onPressed: _isFormValid
-                      ? () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ClubApplyCompleteScreen(
-                                clubName: screenWidget.clubName,
-                              ),
-                            ),
-                          );
-                        }
-                      : null,
+                  onPressed: _isFormValid && !_isSubmitting ? _submit : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8CC63F),
                     disabledBackgroundColor: const Color(0xFFE0E0E0),

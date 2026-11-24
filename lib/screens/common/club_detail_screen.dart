@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../config/api_config.dart';
 import '../../models/club_models.dart';
 import '../../services/club_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_apply_screen.dart';
 import 'club_news_screen.dart';
 
@@ -26,6 +28,7 @@ class ClubDetailScreen extends StatefulWidget {
 class _ClubDetailScreenState extends State<ClubDetailScreen> {
   ClubModel? _club;
   bool _isLoading = true;
+  bool _hasApplied = false; // 심사 중인 지원서가 있는지 (서버 값)
 
   @override
   void initState() {
@@ -38,13 +41,24 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
   }
 
   Future<void> _loadClubDetail() async {
-    final detail = await ClubRepository.instance.fetchClubDetail(widget.clubId);
-    if (!mounted) return;
-    ClubNewsScreen.ensureClubInitialized(detail.clubName, detail.newsImages);
-    setState(() {
-      _club = detail;
-      _isLoading = false;
-    });
+    try {
+      final raw = await ClubRepository.instance.fetchClubDetailRaw(
+        widget.clubId,
+      );
+      final detail = ClubModel.fromJson(raw);
+      // 소식 그리드에 쓸 데이터도 같이 받아옴
+      await ClubNewsScreen.loadClubNews(detail.clubId, detail.clubName);
+      if (!mounted) return;
+      setState(() {
+        _club = detail;
+        _hasApplied = raw['has_applied'] == true;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showApiError(context, e);
+    }
   }
 
   List<GridItemMap> _getSyncedGridItems(String clubName) {
@@ -77,9 +91,9 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
     double? height,
     required Widget fallback,
   }) {
-    if (path.startsWith('http')) {
+    if (path.startsWith('http') || path.startsWith('/uploads')) {
       return Image.network(
-        path,
+        ApiConfig.resolveUrl(path),
         width: width,
         height: height,
         fit: BoxFit.cover,
@@ -136,7 +150,7 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
     final bool isJoined = ClubRepository.instance.isClubJoined(
       currentClub.clubId,
     );
-    final bool canApply = isRecruiting && !isJoined;
+    final bool canApply = isRecruiting && !isJoined && !_hasApplied;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -413,6 +427,7 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => ClubNewsScreen(
+                                      clubId: currentClub.clubId,
                                       clubName: currentClub.clubName,
                                       clubLogo: currentClub.logoUrl,
                                       isPresident: widget.isPresident,
@@ -557,16 +572,18 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
                 height: 52.0,
                 child: ElevatedButton(
                   onPressed: canApply
-                      ? () {
-                          Navigator.push(
+                      ? () async {
+                          await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => ClubApplyScreen(
+                                clubId: currentClub.clubId,
                                 clubName: currentClub.clubName,
                                 clubLogo: currentClub.logoUrl,
                               ),
                             ),
                           );
+                          _loadClubDetail(); // 지원 후 버튼 상태 갱신
                         }
                       : null,
                   style: ElevatedButton.styleFrom(
@@ -580,6 +597,8 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
                   child: Text(
                     isJoined
                         ? '이미 가입한 동아리입니다'
+                        : _hasApplied
+                        ? '지원서 심사 중이에요'
                         : (isRecruiting ? '지원서 작성하기' : '모집이 마감되었습니다'),
                     style: TextStyle(
                       fontSize: 16.0,

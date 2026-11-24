@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
 
-import 'screens/common/explore_screen.dart';
 import 'screens/common/board_screen.dart';
+import 'screens/common/explore_screen.dart';
 import 'screens/common/home_screen.dart';
-import 'screens/common/notification_screen.dart';
+import 'screens/common/login_screen.dart';
 import 'screens/common/my_page_screen.dart';
+import 'screens/common/notification_screen.dart';
+import 'services/auth_service.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // 저장된 로그인 토큰이 있으면 자동 로그인, 없으면 로그인 화면부터
+  final loggedIn = await AuthService.instance.restoreSession();
+  runApp(MyApp(loggedIn: loggedIn));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool loggedIn;
+
+  const MyApp({super.key, this.loggedIn = false});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +30,7 @@ class MyApp extends StatelessWidget {
         fontFamily: 'Pretendard',
         primaryColor: const Color(0xFF8CC63F),
       ),
-      home: const MainNavigationScreen(),
+      home: loggedIn ? const MainNavigationScreen() : const LoginScreen(),
     );
   }
 }

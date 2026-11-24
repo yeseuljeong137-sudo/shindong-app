@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+import '../../services/auth_service.dart';
 import 'application_status_screen.dart';
 import 'faq_screen.dart';
 import 'login_screen.dart';
@@ -14,6 +16,35 @@ class MyPageScreen extends StatefulWidget {
 }
 
 class _MyPageScreenState extends State {
+  // GET /api/users/me 결과 (이름, 학과, 학번, 지원 현황 건수 ...)
+  Map<String, dynamic>? _me;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMe();
+  }
+
+  Future<void> _loadMe() async {
+    try {
+      final data = asJsonMap(await ApiClient.instance.get('/api/users/me'));
+      if (!mounted) return;
+      setState(() => _me = data);
+    } catch (_) {
+      // 실패하면 로그인 때 받은 기본 정보로 표시
+    }
+  }
+
+  String get _name =>
+      (_me?['name'] ?? AuthService.instance.currentUser?['name'] ?? '').toString();
+
+  String get _deptAndId {
+    final user = _me ?? AuthService.instance.currentUser ?? {};
+    final dept = user['department']?.toString() ?? '';
+    final stId = user['st_id']?.toString() ?? '';
+    return [dept, stId].where((s) => s.isNotEmpty).join(' · ');
+  }
+
   void _showLogoutDialog(BuildContext context) {
     final rootNavigator = Navigator.of(context, rootNavigator: true);
 
@@ -96,8 +127,9 @@ class _MyPageScreenState extends State {
                       child: SizedBox(
                         height: 48.0,
                         child: ElevatedButton(
-                          onPressed: () {
+                          onPressed: () async {
                             Navigator.pop(dialogContext);
+                            await AuthService.instance.logout();
                             rootNavigator.pushAndRemoveUntil(
                               MaterialPageRoute(
                                 builder: (context) => const LoginScreen(),
@@ -221,22 +253,25 @@ class _MyPageScreenState extends State {
             ],
           ),
           const SizedBox(width: 16.0),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '김신구',
-                  style: TextStyle(
+                  _name,
+                  style: const TextStyle(
                     fontSize: 18.0,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF191919),
                   ),
                 ),
-                SizedBox(height: 4.0),
+                const SizedBox(height: 4.0),
                 Text(
-                  '소프트웨어학과 · 20241234',
-                  style: TextStyle(fontSize: 13.0, color: Color(0xFF757575)),
+                  _deptAndId,
+                  style: const TextStyle(
+                    fontSize: 13.0,
+                    color: Color(0xFF757575),
+                  ),
                 ),
               ],
             ),
@@ -368,14 +403,15 @@ class _MyPageScreenState extends State {
                   // 클릭 시 나의 지원현황 화면으로 이동
                   Expanded(
                     child: InkWell(
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) =>
                                 const ApplicationStatusScreen(),
                           ),
                         );
+                        _loadMe(); // 지원 취소 등 반영
                       },
                       borderRadius: BorderRadius.circular(16.0),
                       child: Container(
@@ -384,10 +420,10 @@ class _MyPageScreenState extends State {
                           color: const Color(0xFFF9FBE7),
                           borderRadius: BorderRadius.circular(16.0),
                         ),
-                        child: const Column(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            const Text(
                               '지원 현황',
                               style: TextStyle(
                                 fontSize: 12.0,
@@ -395,19 +431,19 @@ class _MyPageScreenState extends State {
                                 color: Color(0xFF8CC63F),
                               ),
                             ),
-                            SizedBox(height: 8.0),
+                            const SizedBox(height: 8.0),
                             Text(
-                              '2건',
-                              style: TextStyle(
+                              '${_me?['application_in_progress_count'] ?? 0}건',
+                              style: const TextStyle(
                                 fontSize: 22.0,
                                 fontWeight: FontWeight.w800,
                                 color: Color(0xFF191919),
                               ),
                             ),
-                            SizedBox(height: 4.0),
+                            const SizedBox(height: 4.0),
                             Text(
-                              '지난 이력 4건',
-                              style: TextStyle(
+                              '지난 이력 ${_me?['application_history_count'] ?? 0}건',
+                              style: const TextStyle(
                                 fontSize: 11.0,
                                 color: Color(0xFF757575),
                               ),

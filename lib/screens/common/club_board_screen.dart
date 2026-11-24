@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../config/app_role.dart';
 import '../../models/board_post_models.dart';
 import '../../services/board_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_post_detail_screen.dart';
 import 'club_post_write_screen.dart';
 
@@ -35,7 +36,7 @@ class _ClubBoardScreenState extends State<ClubBoardScreen> {
   PostList _posts = [];
 
   bool get _effectiveIsPresident {
-    return widget.isPresident ?? AppRole.isPresident;
+    return widget.isPresident ?? AppRole.isPresidentOf(widget.clubId);
   }
 
   @override
@@ -51,15 +52,21 @@ class _ClubBoardScreenState extends State<ClubBoardScreen> {
   }
 
   Future<void> _loadPosts() async {
-    final posts = await BoardRepository.instance.fetchPosts(
-      widget.clubId,
-      clubName: widget.clubName,
-    );
-    if (!mounted) return;
-    setState(() {
-      _posts = posts;
-      _isLoading = false;
-    });
+    try {
+      final posts = await BoardRepository.instance.fetchPosts(
+        widget.clubId,
+        clubName: widget.clubName,
+      );
+      if (!mounted) return;
+      setState(() {
+        _posts = posts;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showApiError(context, e);
+    }
   }
 
   BoardPostModel? get _pinnedPost {
@@ -430,12 +437,18 @@ class _ClubBoardScreenState extends State<ClubBoardScreen> {
                                     const Spacer(),
                                     GestureDetector(
                                       onTap: () async {
-                                        await BoardRepository.instance
-                                            .togglePostLike(
-                                              widget.clubId,
-                                              post.postId,
-                                            );
-                                        await _loadPosts();
+                                        try {
+                                          await BoardRepository.instance
+                                              .togglePostLike(
+                                                widget.clubId,
+                                                post.postId,
+                                              );
+                                          await _loadPosts();
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            showApiError(context, e);
+                                          }
+                                        }
                                       },
                                       child: Row(
                                         children: [

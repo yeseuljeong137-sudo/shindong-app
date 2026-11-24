@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+import '../../widgets/api_error.dart';
+
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
 
@@ -8,25 +11,41 @@ class NotificationSettingsScreen extends StatefulWidget {
 }
 
 class _NotificationSettingsScreenState extends State {
-  final List _settings = [
-    {'title': '지원 결과 알림', 'subtitle': '서류 심사 및 면접 결과 발표 알림', 'enabled': true},
-    {
-      'title': '스케줄 알림',
-      'subtitle': '다가오는 면접 일정 및 서류 제출 마감 기한',
-      'enabled': false,
-    },
-    {'title': '동아리 활동 알림', 'subtitle': '내 동아리의 중요 일정 및 공지 사항', 'enabled': true},
-    {
-      'title': '새 피드 알림',
-      'subtitle': '내 동아리 소식에 새로운 피드가 올라왔을 때',
-      'enabled': false,
-    },
-    {
-      'title': '마케팅 및 이벤트 알림',
-      'subtitle': '새로운 동아리 추천 및 이벤트 알림',
-      'enabled': false,
-    },
-  ];
+  // 서버의 알림 설정 [{ key, title, subtitle, enabled }] — GET /api/notifications/settings
+  List _settings = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final list = asJsonList(
+        await ApiClient.instance.get('/api/notifications/settings'),
+      );
+      if (!mounted) return;
+      setState(() => _settings = list);
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+    }
+  }
+
+  Future<void> _toggle(Map item) async {
+    final bool next = item['enabled'] != true;
+    setState(() => item['enabled'] = next); // 화면 먼저 바꾸고
+    try {
+      await ApiClient.instance.put(
+        '/api/notifications/settings',
+        body: {item['key'].toString(): next},
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => item['enabled'] = !next); // 실패하면 되돌림
+      showApiError(context, e);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,11 +133,7 @@ class _NotificationSettingsScreenState extends State {
                     ),
                     const SizedBox(width: 12.0),
                     GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          item['enabled'] = !isEnabled;
-                        });
-                      },
+                      onTap: () => _toggle(item),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
                         width: 48.0,

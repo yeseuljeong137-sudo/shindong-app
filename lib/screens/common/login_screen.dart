@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../main.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/app_logo.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -12,6 +15,36 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _login() async {
+    final stId = _idController.text.trim();
+    final password = _passwordController.text;
+    if (stId.isEmpty || password.isEmpty) {
+      _showMessage('학번과 비밀번호를 입력해 주세요.');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _isLoading = true);
+    try {
+      await AuthService.instance.login(stId, password);
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+        (route) => false,
+      );
+    } on ApiException catch (e) {
+      _showMessage(e.message);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   void dispose() {
@@ -52,8 +85,10 @@ class _LoginScreenState extends State<LoginScreen> {
               // 아이디 입력창
               TextField(
                 controller: _idController,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
-                  hintText: '아이디',
+                  hintText: '학번',
                   hintStyle: const TextStyle(
                     color: Color(0xFFBDBDBD),
                     fontSize: 15.0,
@@ -85,6 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _passwordController,
                 obscureText: true,
+                onSubmitted: (_) => _login(),
                 decoration: InputDecoration(
                   hintText: '비밀번호',
                   hintStyle: const TextStyle(
@@ -119,24 +155,32 @@ class _LoginScreenState extends State<LoginScreen> {
                 width: double.infinity,
                 height: 52.0,
                 child: ElevatedButton(
-                  onPressed: () {
-                    // TODO: 포털 계정 인증 로직 연결
-                  },
+                  onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF9EC644),
+                    disabledBackgroundColor: const Color(0xFFCFE3A1),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14.0),
                     ),
                   ),
-                  child: const Text(
-                    '신구대 포털 계정으로 로그인',
-                    style: TextStyle(
-                      fontSize: 16.0,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 22.0,
+                          height: 22.0,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          '신구대 포털 계정으로 로그인',
+                          style: TextStyle(
+                            fontSize: 16.0,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
 

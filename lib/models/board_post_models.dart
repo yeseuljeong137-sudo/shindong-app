@@ -265,6 +265,24 @@ class BoardPostDraftModel {
     required this.savedAt,
   });
 
+  factory BoardPostDraftModel.fromJson(Map<String, dynamic> json) {
+    final rawTags = json['tags'] as List<dynamic>? ?? const [];
+    final rawAttachments = json['attachments'] as List<dynamic>? ?? const [];
+    return BoardPostDraftModel(
+      draftId: json['draftId'] as int? ?? 0,
+      clubId: json['clubId'] as int? ?? 0,
+      boardCategory: json['boardCategory']?.toString(),
+      title: json['title']?.toString() ?? '',
+      content: json['content']?.toString() ?? '',
+      tags: rawTags.map((e) => e.toString()).toList(),
+      attachments: rawAttachments
+          .map((e) => BoardAttachmentModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      isPinned: json['isPinned'] as bool? ?? false,
+      savedAt: json['savedAt']?.toString() ?? '',
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'draftId': draftId,

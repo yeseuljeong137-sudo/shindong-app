@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../config/app_role.dart';
 import '../../models/board_post_models.dart';
 import '../../services/board_repository.dart';
+import '../../widgets/api_error.dart';
 
 class ClubPostDetailScreen extends StatefulWidget {
   final int clubId;
@@ -29,7 +30,7 @@ class _ClubPostDetailScreenState extends State<ClubPostDetailScreen> {
   final FocusNode _commentFocusNode = FocusNode();
 
   bool get _effectiveIsPresident {
-    return widget.isPresident ?? AppRole.isPresident;
+    return widget.isPresident ?? AppRole.isPresidentOf(widget.clubId);
   }
 
   @override
@@ -62,10 +63,16 @@ class _ClubPostDetailScreenState extends State<ClubPostDetailScreen> {
   }
 
   Future<void> _toggleLike() async {
-    final updated = await BoardRepository.instance.togglePostLike(
-      widget.clubId,
-      _post.postId,
-    );
+    final BoardPostModel updated;
+    try {
+      updated = await BoardRepository.instance.togglePostLike(
+        widget.clubId,
+        _post.postId,
+      );
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _post = updated;
@@ -73,10 +80,16 @@ class _ClubPostDetailScreenState extends State<ClubPostDetailScreen> {
   }
 
   Future<void> _togglePin() async {
-    final updated = await BoardRepository.instance.togglePostPin(
-      widget.clubId,
-      _post.postId,
-    );
+    final BoardPostModel updated;
+    try {
+      updated = await BoardRepository.instance.togglePostPin(
+        widget.clubId,
+        _post.postId,
+      );
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _post = updated;
@@ -92,7 +105,12 @@ class _ClubPostDetailScreenState extends State<ClubPostDetailScreen> {
   }
 
   Future<void> _deletePost() async {
-    await BoardRepository.instance.deletePost(widget.clubId, _post.postId);
+    try {
+      await BoardRepository.instance.deletePost(widget.clubId, _post.postId);
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+      return;
+    }
     if (!mounted) return;
     Navigator.pop(context);
   }
@@ -101,15 +119,19 @@ class _ClubPostDetailScreenState extends State<ClubPostDetailScreen> {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
 
-    final String currentAuthor = _effectiveIsPresident ? '회장 김신구' : '박시현';
-
-    final updated = await BoardRepository.instance.addComment(
-      widget.clubId,
-      _post.postId,
-      authorName: currentAuthor,
-      content: text,
-      isAnonymous: false,
-    );
+    final BoardPostModel updated;
+    try {
+      // 작성자 이름은 서버가 로그인한 사용자로 채움
+      updated = await BoardRepository.instance.addComment(
+        widget.clubId,
+        _post.postId,
+        content: text,
+        isAnonymous: false,
+      );
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+      return;
+    }
     if (!mounted) return;
     _commentController.clear();
     _commentFocusNode.unfocus();
@@ -119,11 +141,17 @@ class _ClubPostDetailScreenState extends State<ClubPostDetailScreen> {
   }
 
   Future<void> _toggleCommentLike(int commentId) async {
-    final updated = await BoardRepository.instance.toggleCommentLike(
-      widget.clubId,
-      _post.postId,
-      commentId,
-    );
+    final BoardPostModel updated;
+    try {
+      updated = await BoardRepository.instance.toggleCommentLike(
+        widget.clubId,
+        _post.postId,
+        commentId,
+      );
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _post = updated;

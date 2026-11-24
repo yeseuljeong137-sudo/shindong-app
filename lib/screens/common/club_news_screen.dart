@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../config/app_role.dart';
+import '../../services/news_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_news_photo_picker_screen.dart';
 
 class ClubNewsScreen extends StatefulWidget {
+  final int clubId;
   final String clubName;
   final String clubLogo;
   final bool? isPresident;
@@ -15,50 +18,29 @@ class ClubNewsScreen extends StatefulWidget {
 
   const ClubNewsScreen({
     super.key,
+    required this.clubId,
     required this.clubName,
     this.clubLogo = 'assets/images/logo-dforce.png',
     this.isPresident,
   });
 
-  bool get effectiveIsPresident => isPresident ?? AppRole.isPresident;
+  bool get effectiveIsPresident => isPresident ?? AppRole.isPresidentOf(clubId);
 
-  static final List savedNewsList = [
-    {
-      'clubName': '디포스',
-      'isPinned': false,
-      'timeAgo': '12분 전',
-      'image': ['assets/images/news1.png', 'assets/images/news2.png'],
-      'content': '🔥 오늘자 중앙동아리 신입 부원 1차 오리엔테이션 현장! 다들 너무 잘 춰서 깜짝 놀랐습니다. 이번 주 금요일 버스킹도 기대해 주세요! ✨',
-      'likes': 23,
-      'isLiked': false,
-      'shareUrl': 'shingu.club/feed/d-force/241015',
-      'comments': [
-        {
-          'user': '이수민',
-          'time': '10분 전',
-          'text': '현장 분위기 정말 좋았어요! 금요일 버스킹도 꼭 보러 갈게요 🙌',
-          'isLiked': false,
-        },
-        {
-          'user': '박지훈',
-          'time': '8분 전',
-          'text': '신입 부원분들 벌써 합이 너무 좋네요. 디포스 파이팅!',
-          'isLiked': false,
-        },
-      ],
-    },
-    {
-      'clubName': '디포스',
-      'isPinned': false,
-      'timeAgo': '3시간 전',
-      'image': 'assets/images/news2.png',
-      'content': '이번 주 버스킹 라인업 공개합니다! 다들 연습 열심히 하고 있으니 금요일에 만나요 🙌',
-      'likes': 19,
-      'isLiked': false,
-      'shareUrl': 'shingu.club/feed/d-force/241014',
-      'comments': [],
-    },
-  ];
+  // 서버에서 받아온 소식 캐시 (동아리 상세 화면 그리드와 공유)
+  static final List savedNewsList = [];
+
+  /// 서버에서 이 동아리의 소식을 다시 받아와 savedNewsList를 갱신
+  static Future<void> loadClubNews(int clubId, String clubName) async {
+    final list = await NewsRepository.instance.fetchClubNews(clubId);
+    savedNewsList.removeWhere((post) {
+      final map = post as Map;
+      return map['clubId'] == clubId || map['clubName'] == clubName;
+    });
+    for (final item in list) {
+      item['clubName'] = clubName; // 화면에서 쓰는 이름과 맞춤
+      savedNewsList.add(item);
+    }
+  }
 
   static List getPostsForClub(String clubName) {
     final posts = savedNewsList
@@ -76,40 +58,41 @@ class ClubNewsScreen extends StatefulWidget {
     return posts;
   }
 
-  static void ensureClubInitialized(String clubName, List? seedImages) {
-    final exists = savedNewsList.any(
-      (post) => (post as Map)['clubName'] == clubName,
-    );
-    if (exists) return;
-
-    final List imagesToSeed = (seedImages != null && seedImages.isNotEmpty)
-        ? seedImages.map((e) => e.toString()).toList()
-        : [
-            'assets/images/news1.png',
-            'assets/images/news2.png',
-            'assets/images/banner_helloworld.png',
-          ];
-
-    for (int i = 0; i < imagesToSeed.length; i++) {
-      savedNewsList.add({
-        'clubName': clubName,
-        'isPinned': false,
-        'timeAgo': '${i + 1}일 전',
-        'image': imagesToSeed[i],
-        'content': '$clubName 동아리 활동 소식 ${i + 1}입니다. 많은 관심 부탁드립니다! ✨',
-        'likes': 10 + i,
-        'isLiked': false,
-        'shareUrl': 'shingu.club/feed/$clubName/${i + 1}',
-        'comments': [],
-      });
-    }
-  }
+  // 예전 목업용 함수 (이제 데이터는 서버에서 옴). 호출하는 곳 호환용으로 남겨둠
+  static void ensureClubInitialized(String clubName, List? seedImages) {}
 
   @override
   State createState() => _ClubNewsScreenState();
 }
 
 class _ClubNewsScreenState extends State {
+  bool _isLoading = true;
+
+  ClubNewsScreen get _screen => widget as ClubNewsScreen;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      await ClubNewsScreen.loadClubNews(_screen.clubId, _screen.clubName);
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  /// 서버가 돌려준 최신 데이터로 화면의 Map을 그대로 교체 (참조 유지)
+  void _applyUpdated(Map post, Map<String, dynamic> updated) {
+    updated['clubName'] = _screen.clubName;
+    post
+      ..clear()
+      ..addAll(updated);
+  }
+
   Future _navigateAndAddNewPost() async {
     final screenWidget = widget as ClubNewsScreen;
 
@@ -124,11 +107,19 @@ class _ClubNewsScreenState extends State {
     );
 
     if (result != null && result is Map) {
-      result['clubName'] = screenWidget.clubName;
-      result['isPinned'] = false;
-      setState(() {
-        ClubNewsScreen.savedNewsList.insert(0, result);
-      });
+      try {
+        final images = (result['image'] is List)
+            ? (result['image'] as List).map((e) => e.toString()).toList()
+            : <String>[];
+        await NewsRepository.instance.createNews(
+          screenWidget.clubId,
+          content: result['content']?.toString() ?? '',
+          images: images,
+        );
+        await _reload();
+      } catch (e) {
+        if (mounted) showApiError(context, e);
+      }
     }
   }
 
@@ -157,20 +148,20 @@ class _ClubNewsScreenState extends State {
             child: const Text('취소', style: TextStyle(color: Color(0xFF9E9E9E))),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              setState(() {
-                if (!currentlyPinned) {
-                  for (var item in ClubNewsScreen.savedNewsList) {
-                    final itemMap = item as Map;
-                    if (itemMap['clubName'] == screenWidget.clubName) {
-                      itemMap['isPinned'] = false;
-                    }
-                  }
-                }
-                post['isPinned'] = !currentlyPinned;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
+              try {
+                await NewsRepository.instance.togglePin(
+                  screenWidget.clubId,
+                  post['newsId'] as int,
+                );
+                await _reload(); // 다른 고정글 해제까지 반영
+              } catch (e) {
+                if (mounted) showApiError(this.context, e);
+                return;
+              }
+              if (!mounted) return;
+              ScaffoldMessenger.of(this.context).showSnackBar(
                 SnackBar(
                   content: Text(
                     currentlyPinned ? '게시물이 메인에서 내려갔습니다.' : '게시물이 메인에 올라왔습니다.',
@@ -210,12 +201,22 @@ class _ClubNewsScreenState extends State {
             child: const Text('취소', style: TextStyle(color: Color(0xFF9E9E9E))),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
+              try {
+                await NewsRepository.instance.deleteNews(
+                  _screen.clubId,
+                  post['newsId'] as int,
+                );
+              } catch (e) {
+                if (mounted) showApiError(this.context, e);
+                return;
+              }
+              if (!mounted) return;
               setState(() {
                 ClubNewsScreen.savedNewsList.remove(post);
               });
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(this.context).showSnackBar(
                 const SnackBar(
                   content: Text('게시물이 삭제되었습니다.'),
                   duration: Duration(seconds: 1),
@@ -233,6 +234,7 @@ class _ClubNewsScreenState extends State {
   }
 
   void _showCommentDeleteDialog({
+    required Map post,
     required BuildContext sheetContext,
     required List comments,
     required int index,
@@ -255,13 +257,27 @@ class _ClubNewsScreenState extends State {
             child: const Text('취소', style: TextStyle(color: Color(0xFF9E9E9E))),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(dialogContext);
-              setModalState(() {
-                comments.removeAt(index);
-              });
+              try {
+                final updated = await NewsRepository.instance.deleteComment(
+                  _screen.clubId,
+                  post['newsId'] as int,
+                  (comments[index] as Map)['commentId'] as int,
+                );
+                _applyUpdated(post, updated);
+                setModalState(() {
+                  comments
+                    ..clear()
+                    ..addAll(post['comments'] as List);
+                });
+              } catch (e) {
+                if (mounted) showApiError(this.context, e);
+                return;
+              }
+              if (!mounted) return;
               setState(() {});
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(this.context).showSnackBar(
                 const SnackBar(
                   content: Text('댓글이 삭제되었습니다.'),
                   duration: Duration(seconds: 1),
@@ -282,7 +298,8 @@ class _ClubNewsScreenState extends State {
     final screenWidget = widget as ClubNewsScreen;
     final bool isPresident = screenWidget.effectiveIsPresident;
     final TextEditingController commentController = TextEditingController();
-    final List comments = post['comments'] as List;
+    // post['comments']는 서버 응답으로 교체될 수 있어서 별도 리스트로 들고 있음
+    final List comments = List.from(post['comments'] as List);
 
     showModalBottomSheet(
       context: context,
@@ -356,7 +373,7 @@ class _ClubNewsScreenState extends State {
                                 final bool isCommentLiked =
                                     comment['isLiked'] == true;
                                 final bool isMyComment =
-                                    comment['user'].toString() == '김신구';
+                                    comment['isMine'] == true;
                                 final bool canDeleteComment =
                                     isMyComment || isPresident;
 
@@ -405,6 +422,7 @@ class _ClubNewsScreenState extends State {
                                                 GestureDetector(
                                                   onTap: () =>
                                                       _showCommentDeleteDialog(
+                                                        post: post,
                                                         sheetContext:
                                                             modalContext,
                                                         comments: comments,
@@ -438,10 +456,26 @@ class _ClubNewsScreenState extends State {
                                       ),
                                     ),
                                     GestureDetector(
-                                      onTap: () {
-                                        setModalState(() {
-                                          comment['isLiked'] = !isCommentLiked;
-                                        });
+                                      onTap: () async {
+                                        try {
+                                          final updated = await NewsRepository
+                                              .instance
+                                              .toggleCommentLike(
+                                                _screen.clubId,
+                                                post['newsId'] as int,
+                                                comment['commentId'] as int,
+                                              );
+                                          _applyUpdated(post, updated);
+                                          setModalState(() {
+                                            comments
+                                              ..clear()
+                                              ..addAll(post['comments'] as List);
+                                          });
+                                        } catch (e) {
+                                          if (modalContext.mounted) {
+                                            showApiError(modalContext, e);
+                                          }
+                                        }
                                       },
                                       child: Padding(
                                         padding: const EdgeInsets.only(
@@ -493,18 +527,28 @@ class _ClubNewsScreenState extends State {
                             ),
                           ),
                           GestureDetector(
-                            onTap: () {
-                              if (commentController.text.trim().isNotEmpty) {
-                                setModalState(() {
-                                  comments.add({
-                                    'user': '김신구',
-                                    'time': '방금',
-                                    'text': commentController.text.trim(),
-                                    'isLiked': false,
-                                  });
-                                });
-                                setState(() {});
+                            onTap: () async {
+                              final text = commentController.text.trim();
+                              if (text.isEmpty) return;
+                              try {
+                                final updated = await NewsRepository.instance
+                                    .addComment(
+                                      _screen.clubId,
+                                      post['newsId'] as int,
+                                      text,
+                                    );
+                                _applyUpdated(post, updated);
                                 commentController.clear();
+                                setModalState(() {
+                                  comments
+                                    ..clear()
+                                    ..addAll(post['comments'] as List);
+                                });
+                                if (mounted) setState(() {});
+                              } catch (e) {
+                                if (modalContext.mounted) {
+                                  showApiError(modalContext, e);
+                                }
                               }
                             },
                             child: Container(
@@ -711,7 +755,11 @@ class _ClubNewsScreenState extends State {
         centerTitle: false,
         titleSpacing: 0,
       ),
-      body: clubPosts.isEmpty
+      body: _isLoading && clubPosts.isEmpty
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF8CC63F)),
+            )
+          : clubPosts.isEmpty
           ? const Center(
               child: Text(
                 '등록된 동아리 소식이 없습니다.',
@@ -938,8 +986,8 @@ class _PostItemState extends State {
               });
             },
             itemBuilder: (context, index) {
-              return Image.asset(
-                images[index].toString(),
+              return Image(
+                image: appImageProvider(images[index].toString()),
                 width: double.infinity,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) => Container(
@@ -999,11 +1047,23 @@ class _PostItemState extends State {
           child: Row(
             children: [
               GestureDetector(
-                onTap: () {
-                  setState(() {
-                    post['isLiked'] = !isLiked;
-                    post['likes'] = isLiked ? likeCount - 1 : likeCount + 1;
-                  });
+                onTap: () async {
+                  try {
+                    final updated = await NewsRepository.instance.toggleLike(
+                      post['clubId'] as int,
+                      post['newsId'] as int,
+                    );
+                    final clubName = post['clubName'];
+                    if (!mounted) return;
+                    setState(() {
+                      post
+                        ..clear()
+                        ..addAll(updated)
+                        ..['clubName'] = clubName;
+                    });
+                  } catch (e) {
+                    if (context.mounted) showApiError(context, e);
+                  }
                 },
                 child: Row(
                   children: [

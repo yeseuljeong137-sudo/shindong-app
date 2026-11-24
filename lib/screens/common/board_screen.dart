@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/club_repository.dart';
+import '../../widgets/api_error.dart';
 import 'club_board_screen.dart';
 import 'my_clubs_screen.dart';
 
@@ -29,13 +30,19 @@ class _BoardScreenState extends State<BoardScreen> {
   }
 
   Future<void> _loadBoards() async {
-    final BoardSummaryList data = await ClubRepository.instance
-        .fetchMyBoardSummaries();
-    if (!mounted) return;
-    setState(() {
-      _boardList = data;
-      _isLoading = false;
-    });
+    try {
+      final BoardSummaryList data = await ClubRepository.instance
+          .fetchMyBoardSummaries();
+      if (!mounted) return;
+      setState(() {
+        _boardList = data;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showApiError(context, e);
+    }
   }
 
   Widget _buildClubLogo(String path) {
@@ -110,17 +117,19 @@ class _BoardScreenState extends State<BoardScreen> {
                   final board = _boardList[index];
 
                   return GestureDetector(
-                    onTap: () {
-                      Navigator.push(
+                    onTap: () async {
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => ClubBoardScreen(
+                            clubId: board.clubId,
                             clubName: board.clubName,
                             clubLogo: board.logoUrl,
                             memberCount: board.memberCount,
                           ),
                         ),
                       );
+                      _loadBoards(); // 새 글 수 등 갱신
                     },
                     child: Container(
                       padding: const EdgeInsets.all(20.0),

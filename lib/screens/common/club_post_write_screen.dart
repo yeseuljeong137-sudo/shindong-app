@@ -42,8 +42,34 @@ class _ClubPostWriteScreenState extends State<ClubPostWriteScreen> {
   final List<BoardAttachmentModel> _selectedFiles = [];
   final List<String> _tags = [];
 
+  // 서버에 저장된 임시저장 글 목록
+  List<BoardPostDraftModel> _drafts = [];
+
   bool get _effectiveIsPresident {
-    return widget.isPresident ?? AppRole.isPresident;
+    return widget.isPresident ?? AppRole.isPresidentOf(widget.clubId);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDrafts();
+  }
+
+  Future<void> _loadDrafts() async {
+    try {
+      final drafts = await BoardRepository.instance.getDrafts(widget.clubId);
+      if (!mounted) return;
+      setState(() => _drafts = drafts);
+    } catch (_) {
+      // 임시저장 목록을 못 불러와도 글쓰기는 가능하도록 무시
+    }
+  }
+
+  void _showError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(e.toString()), duration: const Duration(seconds: 2)),
+    );
   }
 
   List<String> get _availableBoards {
@@ -440,9 +466,7 @@ class _ClubPostWriteScreenState extends State<ClubPostWriteScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final currentDrafts = BoardRepository.instance.getDrafts(
-              widget.clubId,
-            );
+            final currentDrafts = _drafts;
 
             return SafeArea(
               child: Padding(
@@ -491,13 +515,17 @@ class _ClubPostWriteScreenState extends State<ClubPostWriteScreen> {
                               size: 20.0,
                               color: Color(0xFF9E9E9E),
                             ),
-                            onPressed: () {
-                              BoardRepository.instance.deleteDraft(
-                                widget.clubId,
-                                draft.draftId,
-                              );
-                              setSheetState(() {});
-                              setState(() {});
+                            onPressed: () async {
+                              try {
+                                await BoardRepository.instance.deleteDraft(
+                                  widget.clubId,
+                                  draft.draftId,
+                                );
+                                await _loadDrafts();
+                                setSheetState(() {});
+                              } catch (e) {
+                                _showError(e);
+                              }
                             },
                           ),
                           onTap: () {
@@ -527,7 +555,7 @@ class _ClubPostWriteScreenState extends State<ClubPostWriteScreen> {
     );
   }
 
-  void _saveCurrentAsDraft() {
+  Future<void> _saveCurrentAsDraft() async {
     if (_titleController.text.trim().isEmpty &&
         _contentController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -539,17 +567,23 @@ class _ClubPostWriteScreenState extends State<ClubPostWriteScreen> {
       return;
     }
 
-    BoardRepository.instance.saveDraft(
-      clubId: widget.clubId,
-      boardCategory: _selectedBoard,
-      title: _titleController.text.trim(),
-      content: _contentController.text.trim(),
-      tags: _tags,
-      attachments: [..._selectedPhotos, ..._selectedFiles],
-      isPinned: _isPinned,
-    );
+    try {
+      await BoardRepository.instance.saveDraft(
+        clubId: widget.clubId,
+        boardCategory: _selectedBoard,
+        title: _titleController.text.trim(),
+        content: _contentController.text.trim(),
+        tags: _tags,
+        attachments: [..._selectedPhotos, ..._selectedFiles],
+        isPinned: _isPinned,
+      );
+      await _loadDrafts();
+    } catch (e) {
+      _showError(e);
+      return;
+    }
 
-    setState(() {});
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('게시글이 임시저장되었습니다.'),
@@ -593,21 +627,25 @@ class _ClubPostWriteScreenState extends State<ClubPostWriteScreen> {
       isPinned: _effectiveIsPresident && _isPinned,
     );
 
-    final String authorName = _effectiveIsPresident ? '회장 김신구' : '박시현';
-
-    final createdPost = await BoardRepository.instance.createPost(
-      dto,
-      authorName: authorName,
-    );
-
-    if (!mounted) return;
-    Navigator.pop(context, createdPost);
+    try {
+      // 작성자 이름은 서버가 로그인한 사용자로 채움
+      final createdPost = await BoardRepository.instance.createPost(
+        dto,
+        authorName: '',
+        isAnonymous: false,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, createdPost);
+    } catch (e) {
+      _showError(e);
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isPresident = _effectiveIsPresident;
-    final draftCount = BoardRepository.instance.getDrafts(widget.clubId).length;
+    final draftCount = _drafts.length;
 
     return Scaffold(
       backgroundColor: Colors.white,

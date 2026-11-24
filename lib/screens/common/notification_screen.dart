@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+import '../../widgets/api_error.dart';
+
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
 
@@ -8,38 +11,50 @@ class NotificationScreen extends StatefulWidget {
 }
 
 class _NotificationScreenState extends State<NotificationScreen> {
+  // 서버에서 받아온 알림 (최신순) — GET /api/notifications
+  List<Map<String, dynamic>> _notifications = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = asJsonMap(await ApiClient.instance.get('/api/notifications'));
+      if (!mounted) return;
+      setState(() {
+        _notifications = asJsonList(data['notifications']);
+        _isLoading = false;
+      });
+      // 화면에 보여줬으니 모두 읽음 처리 (실패해도 무시)
+      if (data['unreadCount'] is int && (data['unreadCount'] as int) > 0) {
+        ApiClient.instance.patch('/api/notifications/read-all').catchError((_) {});
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showApiError(context, e);
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> notification) async {
+    setState(() => _notifications.remove(notification));
+    try {
+      await ApiClient.instance.delete(
+        '/api/notifications/${notification['notificationId']}',
+      );
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+      _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 알림 데이터 내부에 정렬 기준점(timestamp) 추가
-    final notifications = [
-      {
-        'type': '지원 상태',
-        'time': '10분 전',
-        'title': '<HelloWorld> 서류 합격',
-        'content': '축하해요! 9월 29일 면접 일정과 준비 사항을 확인해 주세요.',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 10)),
-      },
-      {
-        'type': '마감 임박',
-        'time': '1시간 전',
-        'title': '<아리아> 모집이 오늘 마감돼요',
-        'content': '지원서 임시 저장 내용이 있어요. 오늘 18시 전에 제출해 주세요.',
-        'timestamp': DateTime.now().subtract(const Duration(hours: 1)),
-      },
-      {
-        'type': '지원 상태',
-        'time': '어제',
-        'title': '<신구FC>가 지원서를 확인했어요',
-        'content': '결과가 등록되면 바로 알려드릴게요.',
-        'timestamp': DateTime.now().subtract(const Duration(days: 1)),
-      },
-    ];
-
-    // timestamp를 기준으로 최신순(내림차순) 정렬 수행
-    notifications.sort(
-      (a, b) =>
-          (b['timestamp'] as DateTime).compareTo(a['timestamp'] as DateTime),
-    );
+    final notifications = _notifications;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -57,7 +72,29 @@ class _NotificationScreenState extends State<NotificationScreen> {
           ),
         ),
       ),
-      body: ListView.separated(
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF8CC63F)),
+            )
+          : RefreshIndicator(
+              color: const Color(0xFF8CC63F),
+              onRefresh: _load,
+              child: notifications.isEmpty
+                  ? ListView(
+                      children: const [
+                        SizedBox(height: 160.0),
+                        Center(
+                          child: Text(
+                            '새로운 알림이 없어요.',
+                            style: TextStyle(
+                              color: Color(0xFF9E9E9E),
+                              fontSize: 14.0,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.separated(
         itemCount: notifications.length,
         separatorBuilder: (BuildContext context, int index) {
           return const Divider(
@@ -68,8 +105,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
         },
         itemBuilder: (BuildContext context, int index) {
           final notification = notifications[index];
+          final bool isUnread = notification['isRead'] != true;
 
-          return Padding(
+          return Dismissible(
+            key: ValueKey(notification['notificationId']),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              color: const Color(0xFFEF4444),
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20.0),
+              child: const Icon(Icons.delete_outline, color: Colors.white),
+            ),
+            onDismissed: (_) => _delete(notification),
+            child: Container(
+            color: isUnread ? const Color(0xFFF7FBEF) : Colors.white,
+            child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: 20.0,
               vertical: 16.0,
@@ -81,7 +131,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      notification['type'] as String,
+                      notification['type'].toString(),
                       style: const TextStyle(
                         fontSize: 12.0,
                         color: Color(0xFF9E9E9E),
@@ -89,7 +139,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       ),
                     ),
                     Text(
-                      notification['time'] as String,
+                      notification['time'].toString(),
                       style: const TextStyle(
                         fontSize: 12.0,
                         color: Color(0xFF9E9E9E),
@@ -99,7 +149,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 ),
                 const SizedBox(height: 8.0),
                 Text(
-                  notification['title'] as String,
+                  notification['title'].toString(),
                   style: const TextStyle(
                     fontSize: 15.0,
                     fontWeight: FontWeight.bold,
@@ -108,7 +158,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 ),
                 const SizedBox(height: 6.0),
                 Text(
-                  notification['content'] as String,
+                  notification['content'].toString(),
                   style: const TextStyle(
                     fontSize: 13.0,
                     color: Color(0xFF757575),
@@ -117,9 +167,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 ),
               ],
             ),
+            ),
+            ),
           );
         },
       ),
+            ),
     );
   }
 }

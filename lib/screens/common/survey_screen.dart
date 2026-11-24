@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
+import '../../widgets/api_error.dart';
 import '../../widgets/app_logo.dart';
+import 'club_detail_screen.dart';
 
 class SurveyScreen extends StatefulWidget {
   const SurveyScreen({super.key});
@@ -16,6 +19,118 @@ class _SurveyScreenState extends State<SurveyScreen> {
   String? _q3Selected = '처음이에요 · 기초부터 배우고 싶어요';
   final Set<String> _q4Selected = {'평일 저녁', '주말'};
   String? _q5Selected = '주 1회';
+  bool _isSubmitting = false;
+
+  // 설문 제출 → 서버가 추천 동아리를 돌려줌 (POST /api/survey)
+  Future<void> _submit() async {
+    if (_q1Selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('관심 분야를 하나 이상 골라 주세요.')),
+      );
+      return;
+    }
+    setState(() => _isSubmitting = true);
+    try {
+      final data = asJsonMap(
+        await ApiClient.instance.post(
+          '/api/survey',
+          body: {
+            'q1': _q1Selected.toList(),
+            'q2': _q2Selected.toList(),
+            'q3': _q3Selected,
+            'q4': _q4Selected.toList(),
+            'q5': _q5Selected,
+          },
+        ),
+      );
+      if (!mounted) return;
+      _showResults(asJsonList(data['recommendations']));
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _showResults(List<Map<String, dynamic>> clubs) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 12.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '이런 동아리를 추천해요 🧩',
+                  style: TextStyle(fontSize: 18.0, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 12.0),
+                if (clubs.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24.0),
+                    child: Text(
+                      '딱 맞는 동아리를 찾지 못했어요. 답변을 바꿔서 다시 시도해 보세요.',
+                      style: TextStyle(color: Color(0xFF9E9E9E)),
+                    ),
+                  )
+                else
+                  ...clubs.map((club) {
+                    final reasons = (club['match_reasons'] as List? ?? [])
+                        .map((e) => e.toString())
+                        .join(' · ');
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(10.0),
+                        child: Image.asset(
+                          club['logo_url']?.toString() ?? '',
+                          width: 44.0,
+                          height: 44.0,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            width: 44.0,
+                            height: 44.0,
+                            color: const Color(0xFFE8F5E9),
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        club['club_name']?.toString() ?? '',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        reasons.isEmpty ? club['category']?.toString() ?? '' : reasons,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.0),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                ClubDetailScreen(clubId: club['club_id'] as int),
+                          ),
+                        );
+                      },
+                    );
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -315,9 +430,7 @@ class _SurveyScreenState extends State<SurveyScreen> {
                     width: double.infinity,
                     height: 52.0,
                     child: ElevatedButton(
-                      onPressed: () {
-                        // TODO: 결과 페이지 이동 또는 추천 요청 연결
-                      },
+                      onPressed: _isSubmitting ? null : _submit,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF9EC644),
                         elevation: 0,

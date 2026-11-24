@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/club_models.dart';
+import '../../services/api_client.dart';
 import '../../widgets/app_logo.dart';
 import 'banner_detail_screen.dart';
 import 'club_create_request_screen.dart';
 import 'club_detail_screen.dart';
 import 'my_clubs_screen.dart';
+import 'survey_screen.dart';
 
 typedef HomeDataMap = Map<String, dynamic>;
 
@@ -23,7 +25,8 @@ class _HomeScreenState extends State<HomeScreen> {
   late final Timer _bannerTimer;
   int _currentBannerIndex = 0;
 
-  final List<HomeDataMap> _bannerData = [
+  // 처음엔 기본 배너를 보여주고, 서버(GET /api/banners)에서 받아오면 교체
+  List<HomeDataMap> _bannerData = [
     {
       'type': 'banner',
       'homeImage': 'assets/images/banner1.png',
@@ -66,10 +69,58 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // 설문(AI 추천)을 했으면 서버 추천 결과, 안 했으면 기본 추천 목록
+  List<HomeDataMap>? _aiRecommended;
+
+  Future<void> _loadRecommendations() async {
+    try {
+      final data = asJsonMap(
+        await ApiClient.instance.get('/api/survey/recommendations'),
+      );
+      final list = asJsonList(data['recommendations']);
+      if (!mounted || list.isEmpty) return;
+      setState(() {
+        _aiRecommended = list
+            .map(
+              (c) => <String, dynamic>{
+                'clubId': c['club_id'],
+                'isRecruiting': c['is_recruiting'] == true,
+                'tag': c['category'],
+                'title': c['club_name'],
+                'desc': c['description'],
+                'image': c['banner_url'],
+                'logo': c['logo_url'],
+                'time': c['meeting_time'],
+                'location': c['location'],
+                'memberCount': c['member_count'],
+              },
+            )
+            .toList();
+      });
+    } catch (_) {
+      // 실패하면 기본 추천 목록 유지
+    }
+  }
+
+  Future<void> _loadBanners() async {
+    try {
+      final list = asJsonList(await ApiClient.instance.get('/api/banners'));
+      if (!mounted || list.isEmpty) return;
+      setState(() {
+        _bannerData = list;
+        _currentBannerIndex = 0;
+      });
+    } catch (_) {
+      // 서버 연결 실패 시 기본 배너 유지
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     MyClubsScreen.clubsNotifier.addListener(_onJoinedClubsChanged);
+    _loadBanners();
+    _loadRecommendations();
 
     _bannerPageController = PageController(
       initialPage: _bannerData.length * 1000,
@@ -222,6 +273,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           'image': banner['clubImage'].toString(),
                           'time': banner['time'].toString(),
                           'location': banner['location'].toString(),
+                          if (banner['logo'] != null) 'logo': banner['logo'],
+                          if (banner['memberCount'] != null)
+                            'memberCount': banner['memberCount'],
                         });
                       } else {
                         final tags = (banner['tags'] as List<dynamic>)
@@ -442,7 +496,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildAiRecommendedSection() {
-    final List<HomeDataMap> aiClubs = [
+    final List<HomeDataMap> aiClubs = _aiRecommended ?? [
       {
         'clubId': 5,
         'isRecruiting': true,
@@ -488,11 +542,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20.0),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0),
           child: Row(
             children: [
-              Text(
+              const Text(
                 'AI 맞춤 동아리 추천',
                 style: TextStyle(
                   fontSize: 20.0,
@@ -500,8 +554,29 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Color(0xFF191919),
                 ),
               ),
-              SizedBox(width: 6.0),
-              Text('🧩', style: TextStyle(fontSize: 18.0)),
+              const SizedBox(width: 6.0),
+              const Text('🧩', style: TextStyle(fontSize: 18.0)),
+              const Spacer(),
+              // 설문하러 가기 → 돌아오면 추천 목록 갱신
+              GestureDetector(
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SurveyScreen(),
+                    ),
+                  );
+                  _loadRecommendations();
+                },
+                child: const Text(
+                  '설문하기 >',
+                  style: TextStyle(
+                    fontSize: 13.0,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF8CC63F),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

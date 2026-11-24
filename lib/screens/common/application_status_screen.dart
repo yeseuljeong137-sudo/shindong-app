@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../services/application_repository.dart';
+import '../../widgets/api_error.dart';
+
 class ApplicationStatusScreen extends StatefulWidget {
   const ApplicationStatusScreen({super.key});
 
@@ -10,57 +13,32 @@ class ApplicationStatusScreen extends StatefulWidget {
 class _ApplicationStatusScreenState extends State {
   int _selectedTabIndex = 0; // 0: 지원중인 동아리, 1: 지난 지원 이력
 
-  final List _activeApplications = [
-    {
-      'clubName': 'orange',
-      'logo': 'assets/images/logo-orange.png',
-      'statusText': '면접 대기',
-      'steps': ['지원완료', '서류합격', '면접대기', '최종합격'],
-      'currentStep': 2,
-      'noticeTitle': '면접 안내 일정',
-      'noticeDetail': '3월 18일 (화) 15:30 | 산학협력관 4층 대회의실',
-    },
-    {
-      'clubName': '아리아',
-      'logo': 'assets/images/logo-aria.png',
-      'statusText': '서류심사중',
-      'steps': ['지원완료', '서류심사', '최종합격'],
-      'currentStep': 1,
-      'noticeTitle': '서류 발표 일정',
-      'noticeDetail': '3월 21일 (금) 12:30 | 4층 대회의실',
-    },
-  ];
+  // 서버에서 받아오는 지원 현황 (GET /api/applications/me)
+  List _activeApplications = [];
+  List _pastApplications = [];
+  bool _isLoading = true;
 
-  final List _pastApplications = [
-    {
-      'clubName': 'HelloWorld',
-      'category': '체육/스포츠',
-      'logo': 'assets/images/logo-helloworld.png',
-      'result': '최종 합격',
-      'appliedDate': '2026.03.10',
-    },
-    {
-      'clubName': '버디',
-      'category': '사회/봉사',
-      'logo': 'assets/images/logo-buddy.png',
-      'result': '불합격',
-      'appliedDate': '2026.02.30',
-    },
-    {
-      'clubName': '오프레임 (Off-frame)',
-      'category': '문화/예술',
-      'logo': 'assets/images/logo-offframe.png',
-      'result': '최종 합격',
-      'appliedDate': '2025.12.08',
-    },
-    {
-      'clubName': '디포스',
-      'category': '문화/예술',
-      'logo': 'assets/images/logo-dforce.png',
-      'result': '지원 취소',
-      'appliedDate': '2025.03.02',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await ApplicationRepository.instance.fetchMine();
+      if (!mounted) return;
+      setState(() {
+        _activeApplications = result.inProgress;
+        _pastApplications = result.history;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showApiError(context, e);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -113,9 +91,17 @@ class _ApplicationStatusScreenState extends State {
             ),
           ),
           Expanded(
-            child: _selectedTabIndex == 0
-                ? _buildActiveList()
-                : _buildPastList(),
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF8CC63F)),
+                  )
+                : RefreshIndicator(
+                    color: const Color(0xFF8CC63F),
+                    onRefresh: _load,
+                    child: _selectedTabIndex == 0
+                        ? _buildActiveList()
+                        : _buildPastList(),
+                  ),
           ),
         ],
       ),
@@ -246,6 +232,7 @@ class _ApplicationStatusScreenState extends State {
               ),
               const SizedBox(height: 22.0),
               _buildStepProgress(steps, currentStep),
+              if (item['noticeTitle'] != null) ...[
               const SizedBox(height: 20.0),
               Container(
                 width: double.infinity,
@@ -270,7 +257,7 @@ class _ApplicationStatusScreenState extends State {
                     ),
                     const SizedBox(height: 4.0),
                     Text(
-                      item['noticeDetail'].toString(),
+                      item['noticeDetail']?.toString() ?? '',
                       style: const TextStyle(
                         fontSize: 12.5,
                         color: Color(0xFF4B5563),
@@ -279,6 +266,7 @@ class _ApplicationStatusScreenState extends State {
                   ],
                 ),
               ),
+              ],
             ],
           ),
         );
