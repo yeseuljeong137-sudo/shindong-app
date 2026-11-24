@@ -1,6 +1,6 @@
 # club-backend
 
-신구대 동아리 앱(Flutter `semi`)의 백엔드예요. Node.js + Express + Prisma(SQLite)로 만들었어요.
+신구대 동아리 앱(Flutter `semi`)의 백엔드예요. Node.js + Express + Prisma로 만들었고, DB는 Supabase(PostgreSQL)를 써요.
 `lib/screens/common` 화면들에 하드코딩돼 있던 데이터를 API로 바꿨고, 목업 데이터(동아리 12개, 게시글, 소식, 배너, 알림, 지원 현황)는 seed로 DB에 넣어 둬요.
 
 ## 처음 실행 / 새 버전으로 업데이트했을 때
@@ -167,5 +167,5 @@ Future<ClubList> fetchClubs() async {
 
 ## 나중에 바꿀 것
 - **학교 포털 로그인**: 지금은 앱 자체 계정(학번+비밀번호)이에요. 포털 연동은 `src/routes/auth.js`의 `/login`만 바꾸면 돼요.
-- **배포**: `schema.prisma`의 `provider`를 `"postgresql"`로, `.env`의 `DATABASE_URL`을 Postgres 주소로 바꾼 뒤 `npx prisma migrate dev`를 실행하세요. 업로드 파일은 서버 디스크 대신 S3 같은 저장소로 옮기는 게 좋아요.
+- **배포**: DB는 이미 Supabase에 있어서, Express 서버만 Render 같은 곳에 올리면 돼요. 업로드 파일은 서버 디스크 대신 Supabase Storage 같은 저장소로 옮기는 게 좋아요.
 - **앱의 회장/회원 UI 전환**(`AppRole.isPresident`): `/api/clubs/:clubId`의 `my_role` 또는 `/api/clubs/me/joined`의 `isPresident`로 바꾸면 돼요.

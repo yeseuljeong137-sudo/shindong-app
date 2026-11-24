@@ -3,8 +3,7 @@
 //   + 화면 기능용 테이블(게시판, 소식, 알림 등)
 // - 코드에서는 Prisma 모델 이름(User, Membership ...)을 쓰고,
 //   실제 DB 테이블/컬럼 이름은 @@map / @map 으로 팀 ERD 이름(snake_case)에 맞춤
-// - 개발 중에는 SQLite(파일 하나) 사용
-// - 배포할 때는 provider를 "postgresql"로, DATABASE_URL을 Postgres 주소로 바꾸면 됨
+// - DB는 Supabase(PostgreSQL) 사용. 연결 주소는 .env 의 DATABASE_URL / DIRECT_URL
 // - Json 필드는 목록 데이터(태그, 사진 목록 등)를 통째로 저장할 때 사용
 
 generator client {
@@ -12,8 +11,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Supabase Transaction pooler (6543) — 서버가 평소에 사용
+  directUrl = env("DIRECT_URL") // Supabase Session pooler (5432) — migrate 할 때 사용
 }
 
 // ───────────────────────── 회원 ─────────────────────────

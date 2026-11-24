@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "build": "prisma generate",
+    "start:prod": "prisma migrate deploy && node src/index.js",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
@@ -15,7 +17,10 @@
     "seed": "node prisma/seed.js"
   },
   "nodemonConfig": {
-    "ignore": ["uploads/*", "prisma/*.db*"]
+    "ignore": [
+      "uploads/*",
+      "prisma/*.db*"
+    ]
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -23,10 +28,13 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "prisma": "^6.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "prisma": "^6.0.0"
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
