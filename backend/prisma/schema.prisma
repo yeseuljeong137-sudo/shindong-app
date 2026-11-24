@@ -1,0 +1,416 @@
+// 신구대 동아리 앱 DB 구조 (shindong_db)
+// - 팀 ERD의 핵심 테이블 7개(users, club, sign_up, re, applications, dues, account_books)
+//   + 화면 기능용 테이블(게시판, 소식, 알림 등)
+// - 코드에서는 Prisma 모델 이름(User, Membership ...)을 쓰고,
+//   실제 DB 테이블/컬럼 이름은 @@map / @map 으로 팀 ERD 이름(snake_case)에 맞춤
+// - 개발 중에는 SQLite(파일 하나) 사용
+// - 배포할 때는 provider를 "postgresql"로, DATABASE_URL을 Postgres 주소로 바꾸면 됨
+// - Json 필드는 목록 데이터(태그, 사진 목록 등)를 통째로 저장할 때 사용
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── 회원 ─────────────────────────
+
+model User {
+  id           Int      @id @default(autoincrement())
+  stId         String   @unique @map("st_id") // 학번 (로그인 아이디)
+  passwordHash String @map("password_hash")
+  name         String
+  department   String?
+  profileImg   String? @map("profile_img")
+  isAdmin      Boolean  @default(false) @map("is_admin") // 앱 관리자 (동아리 개설 요청 승인)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  memberships          Membership[]
+  applications         Application[]
+  posts                Post[]
+  postLikes            PostLike[]
+  comments             Comment[]
+  commentLikes         CommentLike[]
+  postDrafts           PostDraft[]
+  newsPosts            NewsPost[]
+  newsLikes            NewsLike[]
+  newsComments         NewsComment[]
+  newsCommentLikes     NewsCommentLike[]
+  newsDrafts           NewsDraft[]
+  notifications        Notification[]
+  notificationSetting  NotificationSetting?
+  clubCreateRequests   ClubCreateRequest[]
+  surveyResponses      SurveyResponse[]
+  withdrawals          Withdrawal[]
+  dues                 Due[]
+
+  @@map("users")
+}
+
+// ───────────────────────── 동아리 ─────────────────────────
+
+model Club {
+  id              Int       @id @default(autoincrement()) @map("club_id")
+  name            String @map("club_name")
+  category        String // 학술, 체육/스포츠, 문화/예술, 사회/봉사 ...
+  description     String    @default("")
+  logoUrl         String    @default("") @map("logo_url")
+  bannerUrl       String    @default("") @map("banner_url")
+  meetingTime     String    @default("") @map("meeting_time")
+  location        String    @default("")
+  isRecruiting    Boolean   @default(false) @map("is_recruiting")
+  recruitDeadline DateTime? @map("recruit_deadline")
+  hasInterview    Boolean   @default(true) @map("has_interview") // 지원 단계에 면접이 있는지
+  activities      Json      @default("[]") // ["해커톤 참가", ...]
+  viewCount       Int       @default(0) @map("view_count") // 조회수 (동아리 상세를 볼 때마다 +1)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  faqs         ClubFaq[]
+  memberships  Membership[]
+  applications Application[]
+  posts        Post[]
+  postDrafts   PostDraft[]
+  newsPosts    NewsPost[]
+  newsDrafts   NewsDraft[]
+  banners      Banner[]
+  withdrawals  Withdrawal[]
+  recruitments Recruitment[]
+  dues         Due[]
+  accountBooks AccountBook[]
+
+  @@map("club")
+}
+
+model ClubFaq {
+  id       Int    @id @default(autoincrement())
+  question String
+  answer   String
+  club     Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId   Int @map("club_id")
+
+  @@map("club_faqs")
+}
+
+// 누가 어느 동아리에 어떤 역할로 속해 있는지
+model Membership {
+  id       Int      @id @default(autoincrement())
+  role     String   @default("MEMBER") // "PRESIDENT"(회장) | "MEMBER"(회원)
+  joinedAt DateTime @default(now()) @map("joined_at")
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   Int @map("user_id")
+  club     Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId   Int @map("club_id")
+
+  @@unique([userId, clubId])
+  @@map("sign_up")
+}
+
+// 동아리 탈퇴 기록 (탈퇴 사유 저장)
+model Withdrawal {
+  id        Int      @id @default(autoincrement())
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @map("user_id")
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId    Int @map("club_id")
+
+  @@map("withdrawals")
+}
+
+// ───────────────────────── 지원 ─────────────────────────
+
+model Application {
+  id           Int      @id @default(autoincrement())
+  // SUBMITTED(서류심사중) | INTERVIEW(면접 대기) | ACCEPTED(최종 합격) | REJECTED(불합격) | CANCELED(지원 취소)
+  status       String   @default("SUBMITTED") @map("status_code")
+  answers      Json // { motive, interests[], tools, experience, preparation }
+  noticeTitle  String? @map("notice_title") // 예: "면접 안내 일정"
+  noticeDetail String? @map("notice_detail") // 예: "3월 18일 (화) 15:30 | 산학협력관 4층 대회의실"
+  createdAt    DateTime @default(now()) @map("applied_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       Int @map("user_id")
+  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId       Int @map("club_id")
+  // 어느 모집(re)에 지원했는지 (모집 공고가 없으면 비어 있음)
+  recruitment   Recruitment? @relation(fields: [recruitmentId], references: [id], onDelete: SetNull)
+  recruitmentId Int? @map("recruitment_id")
+
+  @@map("applications")
+}
+
+// 모집 공고 (팀 ERD: 모집)
+model Recruitment {
+  id           Int           @id @default(autoincrement())
+  reDate       DateTime @map("re_date") // 모집 시작일
+  deadlineDate DateTime? @map("deadline_date") // 마감일
+  statusCode   String        @default("OPEN") @map("status_code") // OPEN(모집중) | CLOSED(마감)
+  club         Club          @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId       Int @map("club_id")
+  applications Application[]
+
+  @@unique([clubId, reDate])
+  @@map("re")
+}
+
+// 회비 납부 (팀 ERD: 회비_관리)
+model Due {
+  id     Int      @id @default(autoincrement())
+  paidAt DateTime @default(now()) @map("paid_at") // 납부일시
+  amount Int // 금액
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int @map("user_id")
+  club   Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId Int @map("club_id")
+
+  @@map("dues")
+}
+
+// 회계 장부 (팀 ERD: 장부_관리)
+model AccountBook {
+  id          Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now()) @map("created_at") // 장부 등록일시
+  amount      Int // 금액 (수입 +, 지출 -)
+  description String? // 내역
+  proofImg    String? @map("proof_img") // 증빙 이미지 URL
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId      Int @map("club_id")
+
+  @@map("account_books")
+}
+
+// 동아리 개설 요청 (관리자가 승인)
+model ClubCreateRequest {
+  id          Int      @id @default(autoincrement())
+  name        String
+  category    String
+  purpose     String
+  advisor     String
+  leaderInfo  String @map("leader_info")
+  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt   DateTime @default(now()) @map("created_at")
+  requester   User     @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  requesterId Int @map("requester_id")
+
+  @@map("club_create_requests")
+}
+
+// ───────────────────────── 동아리 게시판 ─────────────────────────
+
+model Post {
+  id            Int      @id @default(autoincrement())
+  boardCategory String   @default("자유게시판") @map("board_category") // 공지사항 | 자유게시판 | 질문게시판 | 정보공유
+  title         String
+  content       String
+  isAnonymous   Boolean  @default(false) @map("is_anonymous")
+  isNotice      Boolean  @default(false) @map("is_notice")
+  isPinned      Boolean  @default(false) @map("is_pinned")
+  viewCount     Int      @default(0) @map("view_count")
+  tags          Json     @default("[]")
+  attachments   Json     @default("[]") // [{ fileName, fileUrl, fileSizeBytes, mimeType, type }]
+  createdAt     DateTime @default(now()) @map("created_at")
+  author        User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId      Int @map("author_id")
+  club          Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId        Int @map("club_id")
+
+  likes    PostLike[]
+  comments Comment[]
+
+  @@map("posts")
+}
+
+model PostLike {
+  id     Int  @id @default(autoincrement())
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int @map("user_id")
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId Int @map("post_id")
+
+  @@unique([userId, postId])
+  @@map("post_likes")
+}
+
+model Comment {
+  id          Int      @id @default(autoincrement())
+  content     String
+  isAnonymous Boolean  @default(false) @map("is_anonymous")
+  createdAt   DateTime @default(now()) @map("created_at")
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId    Int @map("author_id")
+  post        Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId      Int @map("post_id")
+
+  likes CommentLike[]
+
+  @@map("comments")
+}
+
+model CommentLike {
+  id        Int     @id @default(autoincrement())
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @map("user_id")
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId Int @map("comment_id")
+
+  @@unique([userId, commentId])
+  @@map("comment_likes")
+}
+
+model PostDraft {
+  id            Int      @id @default(autoincrement())
+  boardCategory String? @map("board_category")
+  title         String
+  content       String
+  tags          Json     @default("[]")
+  attachments   Json     @default("[]")
+  isPinned      Boolean  @default(false) @map("is_pinned")
+  savedAt       DateTime @default(now()) @map("saved_at")
+  author        User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId      Int @map("author_id")
+  club          Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId        Int @map("club_id")
+
+  @@map("post_drafts")
+}
+
+// ───────────────────────── 동아리 소식(피드) ─────────────────────────
+
+model NewsPost {
+  id        Int      @id @default(autoincrement())
+  content   String
+  images    Json     @default("[]") // ["/uploads/xxx.png", ...]
+  isPinned  Boolean  @default(false) @map("is_pinned")
+  createdAt DateTime @default(now()) @map("created_at")
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  Int @map("author_id")
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId    Int @map("club_id")
+
+  likes    NewsLike[]
+  comments NewsComment[]
+
+  @@map("news_posts")
+}
+
+model NewsLike {
+  id     Int      @id @default(autoincrement())
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int @map("user_id")
+  news   NewsPost @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  newsId Int @map("news_id")
+
+  @@unique([userId, newsId])
+  @@map("news_likes")
+}
+
+model NewsComment {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  Int @map("author_id")
+  news      NewsPost @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  newsId    Int @map("news_id")
+
+  likes NewsCommentLike[]
+
+  @@map("news_comments")
+}
+
+model NewsCommentLike {
+  id        Int         @id @default(autoincrement())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @map("user_id")
+  comment   NewsComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId Int @map("comment_id")
+
+  @@unique([userId, commentId])
+  @@map("news_comment_likes")
+}
+
+model NewsDraft {
+  id        Int      @id @default(autoincrement())
+  content   String
+  images    Json     @default("[]")
+  savedAt   DateTime @default(now()) @map("saved_at")
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  Int @map("author_id")
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId    Int @map("club_id")
+
+  @@map("news_drafts")
+}
+
+// ───────────────────────── 알림 ─────────────────────────
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  type      String // "지원 상태" | "마감 임박" | "동아리 활동" | "새 피드" ...
+  title     String
+  content   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @map("user_id")
+
+  @@map("notifications")
+}
+
+model NotificationSetting {
+  id                Int     @id @default(autoincrement())
+  applicationResult Boolean @default(true) @map("application_result") // 지원 결과 알림
+  schedule          Boolean @default(false) // 스케줄 알림
+  clubActivity      Boolean @default(true) @map("club_activity") // 동아리 활동 알림
+  newFeed           Boolean @default(false) @map("new_feed") // 새 피드 알림
+  marketing         Boolean @default(false) // 마케팅 및 이벤트 알림
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            Int     @unique @map("user_id")
+
+  @@map("notification_settings")
+}
+
+// ───────────────────────── 홈 / 기타 ─────────────────────────
+
+model Banner {
+  id           Int     @id @default(autoincrement())
+  type         String  @default("banner") // "banner"(행사) | "club"(동아리 홍보)
+  homeImage    String @map("home_image")
+  detailImage  String? @map("detail_image")
+  title        String
+  date         String?
+  location     String?
+  participants String?
+  shareUrl     String? @map("share_url")
+  tags         Json    @default("[]")
+  sortOrder    Int     @default(0) @map("sort_order")
+  club         Club?   @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  clubId       Int? @map("club_id")
+
+  @@map("banners")
+}
+
+// 앱 전체 FAQ (마이페이지 > FAQ)
+model AppFaq {
+  id        Int    @id @default(autoincrement())
+  question  String
+  answer    String
+  sortOrder Int    @default(0) @map("sort_order")
+
+  @@map("app_faqs")
+}
+
+// AI 추천 설문 응답
+model SurveyResponse {
+  id        Int      @id @default(autoincrement())
+  answers   Json // { q1[], q2[], q3, q4[], q5 }
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @map("user_id")
+
+  @@map("survey_responses")
+}
