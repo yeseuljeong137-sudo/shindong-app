@@ -1,4 +1,6 @@
 require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 
@@ -27,6 +29,14 @@ app.use(express.json({ limit: '2mb' }));
 
 // 업로드한 사진/파일 제공: GET /uploads/파일명
 app.use('/uploads', express.static(uploads.UPLOAD_DIR));
+
+// Flutter 웹 앱 화면 제공 (backend/public 에 flutter build web 결과를 넣으면 됨)
+// → 서버 하나로 http://서버주소:3000 에서 앱과 API를 같이 제공
+const WEB_DIR = path.join(__dirname, '..', 'public');
+if (fs.existsSync(path.join(WEB_DIR, 'index.html'))) {
+  app.use(express.static(WEB_DIR));
+  console.log('Flutter 웹 앱 제공 중: /');
+}
 
 // 서버가 살아있는지 확인용
 app.get('/health', (req, res) => res.json({ ok: true }));
